@@ -1,0 +1,2 @@
+chat_model_name: Qwen/Qwen3-8B
+embedding_model_name: netease-youdao/bce-embedding-base_v1
