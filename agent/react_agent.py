@@ -25,11 +25,11 @@ class ReactAgent:
             middleware=[monitor_tool, log_before_model, report_prompt_switch],
         )
 
-    def execute_stream(self, query: str):
+    def execute_stream(self, query: str, history: list = None):
+        messages = list(history) if history else []
+        messages.append({"role": "user", "content": query})
         input_dict = {
-            "messages": [
-                {"role": "user", "content": query},
-            ]
+            "messages": messages
         }
 
         for chunk in self.agent.stream(input_dict, stream_mode="values", context={"report": False}):
