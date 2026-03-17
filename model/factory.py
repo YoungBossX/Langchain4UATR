@@ -4,7 +4,6 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai.chat_models import ChatOpenAI
 from langchain_openai.embeddings import OpenAIEmbeddings
-from langchain_community.chat_models.tongyi import ChatTongyi
 from utils.config_handler import rag_conf
 
 class BaseModelFactory(ABC):
