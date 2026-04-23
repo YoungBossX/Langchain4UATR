@@ -12,6 +12,12 @@ HISTORY_FILE = FileChatMessageHistory("001.json", "rag/chat_history")
 
 # 标题
 st.title("水声目标识别智能Agent")
+if st.button("清空对话历史"):
+    HISTORY_FILE.clear()  # 清空历史
+    st.session_state["message"] = []  # 清空 session
+    st.session_state["session_message"] = []
+    st.success("历史记录已清空！")
+    st.rerun()
 st.divider()
 
 if "agent" not in st.session_state:
@@ -48,12 +54,17 @@ if prompt:
         )
 
         def capture(generator, cache_list):
+            first_chunk = True
             for chunk in generator:
-                cache_list.append(chunk)
-
-                for char in chunk:
-                    time.sleep(0.01)
-                    yield char
+                if first_chunk and chunk.strip() == prompt:
+                    first_chunk = False
+                    continue
+                
+                if "Question:" not in chunk:
+                    cache_list.append(chunk)
+                    for char in chunk:
+                        time.sleep(0.01)
+                        yield char
 
         st.chat_message("assistant").write_stream(capture(res_stream, response_messages))
         st.session_state["message"].append({"role": "assistant", "content": response_messages[-1]})
