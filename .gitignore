@@ -131,3 +131,6 @@ prompts/
 # josn 文件
 *.json
 **/*.json
+
+# openspec 文件夹
+openspec/
