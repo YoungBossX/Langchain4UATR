@@ -1,9 +1,9 @@
 import sys
+import threading
 import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import time
 import streamlit as st
 from agent.react_agent import ReactAgent
 from rag.file_chat_history_store import FileChatMessageHistory
@@ -11,15 +11,18 @@ from langchain_core.messages import HumanMessage, AIMessage
 
 HISTORY_FILE = FileChatMessageHistory("001.json", "rag/chat_history")
 
-# 标题
-st.title("水声目标识别智能Agent")
+st.set_page_config(page_title="水声目标识别智能Agent")
+
+
+def on_stop():
+    st.session_state["_stop_requested"] = True
+
 
 # 侧边栏：文件上传
 with st.sidebar:
     st.header("音频上传")
     uploaded_file = st.file_uploader("上传 WAV 音频文件", type=["wav"], label_visibility="collapsed")
     if uploaded_file is not None:
-        # Save to temp file
         tmp_dir = Path(tempfile.gettempdir()) / "uwa_uploads"
         tmp_dir.mkdir(exist_ok=True)
         tmp_path = tmp_dir / uploaded_file.name
@@ -27,7 +30,6 @@ with st.sidebar:
             f.write(uploaded_file.getbuffer())
         st.session_state["uploaded_audio_path"] = str(tmp_path)
         st.success(f"已上传: {uploaded_file.name}")
-        st.caption(f"路径: `{tmp_path}`")
         st.caption('在对话中说"识别这个文件"即可开始分析')
     elif "uploaded_audio_path" in st.session_state:
         st.info(f"当前文件: {Path(st.session_state['uploaded_audio_path']).name}")
@@ -39,6 +41,9 @@ with st.sidebar:
         st.session_state["session_message"] = []
         st.success("历史记录已清空！")
         st.rerun()
+
+# 标题
+st.title("水声目标识别智能Agent")
 
 # 主区域
 if "agent" not in st.session_state:
@@ -59,6 +64,9 @@ if "session_message" not in st.session_state:
 for message in st.session_state["message"]:
     st.chat_message(message["role"]).write(message["content"])
 
+# Stop button inline above chat input — only visible during generation
+stop_area = st.empty()
+
 # 用户输入
 prompt = st.chat_input()
 
@@ -74,37 +82,63 @@ if prompt:
     st.session_state["message"].append({"role": "user", "content": prompt})
     st.session_state["session_message"].append({"role": "user", "content": augmented_prompt})
 
-    response_messages = []
-    with st.spinner("Agent思考中..."):
-        res_stream = st.session_state["agent"].execute_stream(
-            augmented_prompt,
-            history=st.session_state["session_message"][:-1]
-        )
+    # Show stop button inline
+    stop_area.button("停止生成", on_click=on_stop, key="stop_inline", use_container_width=True)
 
-        def capture(generator, cache_list):
+    # Capture locals BEFORE defining _run — st.session_state must NOT be accessed from bg thread
+    st.session_state["_stop_requested"] = False
+    _agent = st.session_state["agent"]
+    _history = list(st.session_state["session_message"][:-1])
+    response_chunks = []
+    agent_error = [None]
+    stop_event = threading.Event()
+
+    def _run():
+        try:
+            gen = _agent.execute_stream(augmented_prompt, history=_history)
             first_chunk = True
-            full = ""
-            for chunk in generator:
+            for chunk in gen:
+                if stop_event.is_set():
+                    break
                 if first_chunk and chunk.strip() == augmented_prompt:
                     first_chunk = False
                     continue
-
                 if "Question:" not in chunk:
-                    cache_list.append(chunk)
-                    full += chunk
-                    for char in chunk:
-                        time.sleep(0.01)
-                        yield char
+                    response_chunks.append(chunk)
+        except Exception as e:
+            agent_error[0] = str(e)
 
-        st.chat_message("assistant").write_stream(capture(res_stream, response_messages))
+    t = threading.Thread(target=_run)
+    t.start()
 
-        if response_messages:
-            clean_response = "".join(response_messages)
-            st.session_state["message"].append({"role": "assistant", "content": clean_response})
-            st.session_state["session_message"].append({"role": "assistant", "content": clean_response})
+    # Poll for results
+    output_area = st.empty()
+    last_len = 0
+    with st.spinner("Agent思考中..."):
+        while t.is_alive():
+            if st.session_state.get("_stop_requested"):
+                _agent.stop()
+                stop_event.set()
+            if len(response_chunks) > last_len:
+                output_area.chat_message("assistant").markdown("".join(response_chunks))
+                last_len = len(response_chunks)
+            t.join(timeout=0.1)
 
-            HISTORY_FILE.add_messages([
-                HumanMessage(content=prompt),
-                AIMessage(content=clean_response)
-            ])
-        st.rerun()
+    t.join(timeout=5)
+
+    clean_response = "".join(response_chunks)
+    if agent_error[0]:
+        output_area.chat_message("assistant").markdown(f"*[错误: {agent_error[0]}]*")
+    elif clean_response:
+        output_area.chat_message("assistant").markdown(clean_response)
+        st.session_state["message"].append({"role": "assistant", "content": clean_response})
+        st.session_state["session_message"].append({"role": "assistant", "content": clean_response})
+        HISTORY_FILE.add_messages([
+            HumanMessage(content=prompt),
+            AIMessage(content=clean_response)
+        ])
+    else:
+        output_area.chat_message("assistant").markdown("*[已停止]*")
+
+    stop_area.empty()
+    st.rerun()

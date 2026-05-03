@@ -34,7 +34,7 @@ LLM_BASE_URL=<your-api-base-url>
 ### 启动
 
 ```bash
-streamlit run app.py
+conda run -n agent streamlit run app.py
 ```
 
 在侧边栏上传 wav 文件，对话中说"识别这个文件"即可开始分析。

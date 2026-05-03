@@ -13,7 +13,7 @@ class BaseModelFactory(ABC):
 
 class ChatModelFactory(BaseModelFactory):
     def generator(self) -> Optional[Embeddings | BaseChatModel]:
-        return ChatOpenAI(model=rag_conf["chat_model_name"])
+        return ChatOpenAI(model=rag_conf["chat_model_name"], streaming=True)
 
 class EmbeddingsFactory(BaseModelFactory):
     def generator(self) -> Optional[Embeddings | BaseChatModel]:

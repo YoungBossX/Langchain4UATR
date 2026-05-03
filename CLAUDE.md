@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 启动命令
 
 ```bash
-streamlit run app.py
+conda run -n agent streamlit run app.py
 ```
 
 没有 build step、linter、测试套件。依赖通过 conda 管理，两个独立环境：
@@ -123,6 +123,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 - **`.gitignore` 屏蔽了所有 `.md` 和 `.json`**（第 97-98 行、132-133 行）。CLAUDE.md、`.claude/` 设置、prompt 文件、聊天历史 JSON 都无法正常提交，需用 `git add -f` 或修改 `.gitignore`。
 - **没有测试** — 改完代码后运行 `python pipeline/pipeline_engine.py <wav_path>` 验证 Pipeline，或 `streamlit run app.py` 验证 Agent。
 - **`config/.env` 被 gitignore**，必须手动创建。
-- **流式输出有 10ms 人为延迟**：`app.py` 中每字符 `time.sleep(0.01)`，纯粹为了 UI 视觉效果。
+- **ChatOpenAI 已开启 `streaming=True`**：`model/factory.py:16`，LLM 输出 token 级别流式返回。
+- **停止按钮**：消息区输入框上方的"停止生成"按钮，通过 `threading.Event` 中断后台 Agent 线程。Agent 在后台线程执行，主线程轮询输出 + 检测停止信号。后台线程禁止访问 `st.session_state`，所有 Streamlit 状态在主线程捕获后传入。
+- **Pipeline 只返回最高置信度片段**：`pipeline_engine.py:58` 用 `max(predictions, key=lambda p: p["confidence"])` 选取代表段，不再返回全部 52 段。
 - **RAG 去重依赖 `md5.text`**：`vector_store.py` 在 `data/` 同级目录维护已摄入文档 MD5 清单。若被删除，下次运行会全量重新入库。
 - **`rag_service.py` 的 LCEL 链中有 `print_prompt`**，每次调用向 stdout 打印完整 prompt。这是调试残留。

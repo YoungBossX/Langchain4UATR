@@ -54,6 +54,9 @@ class PipelineEngine:
         # Stage 7: Aggregate
         aggregated = _aggregate(predictions, seg)
 
+        # Keep only top-confidence segment as representative
+        top_seg = max(predictions, key=lambda p: p["confidence"])
+
         t_ms = round((time.perf_counter() - t_start) * 1000)
 
         return {
@@ -61,9 +64,9 @@ class PipelineEngine:
             "error_message": None,
             "audio_info": audio,
             "metadata": metadata,
-            "predictions": predictions,
+            "predictions": [top_seg],
             "aggregated": aggregated,
-            "internals": _build_internals(predictions, pre, seg),
+            "internals": _build_internals(top_seg, predictions, pre, seg),
             "inference_time_ms": t_ms,
         }
 
@@ -115,19 +118,19 @@ def _aggregate(predictions: list, seg_info: dict) -> dict:
     }
 
 
-def _build_internals(predictions: list, pre_info: dict, seg_info: dict) -> dict:
+def _build_internals(top_seg: dict, predictions: list, pre_info: dict, seg_info: dict) -> dict:
     """Build the internals section for debugging and explanation."""
-    # Collect cross-attention from first segment
-    ca = predictions[0].get("cross_attention", {}) if predictions else {}
-
-    # Collect modality norms from first segment
-    mn = predictions[0].get("modality_embeddings_norm", {}) if predictions else {}
-    fn = predictions[0].get("fusion_embedding_norm", 0.0) if predictions else 0.0
+    ca = top_seg.get("cross_attention", {})
+    mn = top_seg.get("modality_embeddings_norm", {})
+    fn = top_seg.get("fusion_embedding_norm", 0.0)
 
     return {
         "cross_attention": ca,
         "modality_embeddings_norm": mn,
         "fusion_embedding_norm": fn,
+        "segment_count": seg_info["num_segments"],
+        "top_segment_id": top_seg.get("segment_id"),
+        "top_segment_confidence": top_seg.get("confidence"),
         "preprocessing": {
             "segments_dropped": seg_info["segments_dropped"],
             "snr_estimated_db": pre_info["snr_estimated_db"],

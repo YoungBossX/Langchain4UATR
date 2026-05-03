@@ -20,7 +20,7 @@ def monitor_tool(
         result = handler(request)
         logger.info(f"[tool monitor]工具{request.tool_call['name']}调用成功")
 
-        if request.tool_call['name'] == "fill_context_for_report":
+        if request.tool_call['name'] == "recognize_ship":
             request.runtime.context["report"] = True
 
         return result

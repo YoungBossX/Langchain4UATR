@@ -135,5 +135,15 @@ prompts/
 # openspec 文件夹
 openspec/
 
+# txt 文件
+*.txt
+**/*.txt
+
+# claude 配置目录
+.claude/
+
+# logs 目录
+logs/
+
 # worktree 隔离目录
 .worktrees/

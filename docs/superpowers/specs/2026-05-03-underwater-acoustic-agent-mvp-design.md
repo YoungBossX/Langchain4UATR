@@ -1,5 +1,11 @@
 # 水声目标识别 Agent MVP 设计文档
 
+> **Status: ✅ 已实现** — 2026-05-03，commit `ffeee89`。实现与设计有以下偏差：
+> - `predictions` 仅返回置信度最高的一段（非全部段），聚合仍用全段
+> - `internals` 新增 `segment_count`、`top_segment_id`、`top_segment_confidence`
+> - `app.py` 改为后台线程执行 + 轮询模式（支持停止按钮），停止按钮在输入框上方
+> - `ChatOpenAI` 开启 `streaming=True`
+
 ## 概述
 
 构建"任务理解—工具调用—模型推理—结果解释—报告生成"的智能闭环系统。MVP 采用 Hybrid 架构：确定性推理走 Pipeline，LLM 负责意图理解 + 结果解释 + 报告生成 + 追问。
