@@ -1,5 +1,4 @@
 import sys
-import os
 import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -29,7 +28,7 @@ with st.sidebar:
         st.session_state["uploaded_audio_path"] = str(tmp_path)
         st.success(f"已上传: {uploaded_file.name}")
         st.caption(f"路径: `{tmp_path}`")
-        st.caption("在对话中说"识别这个文件"即可开始分析")
+        st.caption('在对话中说"识别这个文件"即可开始分析')
     elif "uploaded_audio_path" in st.session_state:
         st.info(f"当前文件: {Path(st.session_state['uploaded_audio_path']).name}")
 

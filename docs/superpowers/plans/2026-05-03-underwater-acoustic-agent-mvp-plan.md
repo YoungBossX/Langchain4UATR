@@ -1,6 +1,6 @@
 # 水声目标识别 Agent MVP 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status: ✅ 已完成** — 2026-05-03 实现完毕，commit `ffeee89`。实际采用直接编码而非 subagent 派发（模块规格明确、接口清晰，直接实现效率更高）。
 
 **Goal:** 在现有 LangGraph Agent 骨架上，构建上传 wav → 预处理 → 多模态模型推理 → LLM 报告生成的完整闭环。
 
