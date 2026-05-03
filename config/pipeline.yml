@@ -1,0 +1,44 @@
+# Pipeline configuration for underwater acoustic target recognition
+# Loaded by utils/config_handler.py at import time
+
+pipeline:
+  sample_rate: 16000
+  mono: true
+  segment_length_s: 3.0
+  mel_bins: 128
+  mfcc_dim: 40
+  n_fft: 2048
+  hop_length: 512
+  center: false
+  pre_emphasis_coef: 0.97
+
+model:
+  fusion_embed_dim: 512
+  fusion_heads: 8
+  fusion_layers: 2
+  num_classes: 5
+  expert_num: 8
+  top_k: 3
+  device: "cuda:0"
+  checkpoint_path: "X:/Git_Clone/ShipsEar-Multimodal-Classification/saved/checkpoints/model_best.pt"
+  clap_model_path: "X:/数据集/Research_Project/Zero-Shot_Project/clap-htsat-unfused"
+  model_src_path: "X:/Git_Clone/ShipsEar-Multimodal-Classification/src"
+
+class_names:
+  0: "Working vessels"
+  1: "Small vessels"
+  2: "Passenger vessels"
+  3: "Large commercial"
+  4: "Natural ambient noise"
+
+annotation:
+  csv_path: "X:/数据集/ShipEar/data_preprocessing/annotation/shipear_group_class_segmented_prompt_en_5_frame_Windows_16kHz_3s_0%.csv"
+  filename_column: "segmented_filename"
+  prompt_column: "prompt_en"
+  channel_depth_column: "Channel Depth"
+  wind_column: "Wind"
+  distance_column: "Distance"
+
+pytorch_env:
+  name: "pytorch_env"
+  timeout_seconds: 300
