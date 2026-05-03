@@ -8,29 +8,63 @@
 
 **Tech Stack:** librosa, noisereduce, torch, transformers (CLAP), 现有 LangGraph + Streamlit
 
+**Conda 环境（两个独立环境，不合并）：**
+
+| 环境 | 用途 | 关键包 |
+|---|---|---|
+| `agent` (`E:\Anaconda\envs\agent`) | Streamlit + LangGraph Agent + LLM 调用 | streamlit, langchain, langgraph, chromadb, python-dotenv, PyYAML, openai |
+| `pytorch_env` (`E:\Anaconda\envs\pytorch_env`) | Pipeline（预处理 + 模型推理） | torch 2.5.0, transformers 4.50.3, librosa, noisereduce, soundfile, hydra-core |
+
+**跨环境通信:** Agent 通过 `subprocess` 调用 `conda run -n pytorch_env python pipeline/pipeline_engine.py <audio_path>`，Pipeline 将结果以 JSON 写入 stdout，Agent 解析后使用。
+
 ---
 
-### Task 1: 安装新依赖
+### Task 1: 验证两个环境
 
 **Files:** None
 
-- [ ] **Step 1: 安装 librosa 和 noisereduce**
+- [ ] **Step 1: 验证 agent 环境（运行 Streamlit 的默认环境）**
 
 ```bash
-conda install -c conda-forge librosa
-pip install noisereduce
+conda run -n agent python -c "
+import streamlit; print(f'streamlit={streamlit.__version__}');
+import langchain; print(f'langchain={langchain.__version__}');
+import langgraph; print(f'langgraph={langgraph.__version__}');
+import chromadb; print(f'chromadb={chromadb.__version__}');
+from langchain.agents import create_agent; print('create_agent OK');
+print('agent env OK')
+"
 ```
 
-- [ ] **Step 2: 验证 torch 和 transformers 可用**
+- [ ] **Step 2: 验证 pytorch_env 环境（Pipeline）**
 
 ```bash
-python -c "import torch; print(torch.__version__); import transformers; print(transformers.__version__)"
+conda run -n pytorch_env python -c "
+import torch; print(f'torch={torch.__version__}');
+import transformers; print(f'transformers={transformers.__version__}');
+import librosa; print(f'librosa={librosa.__version__}');
+import noisereduce; print(f'noisereduce={noisereduce.__version__}');
+import soundfile; print(f'soundfile={soundfile.__version__}');
+import numpy; print(f'numpy={numpy.__version__}');
+import pandas; print(f'pandas={pandas.__version__}');
+print('pytorch_env OK')
+"
 ```
 
-如果报错，安装：
+- [ ] **Step 3: 验证跨环境 subprocess 调用通路**
+
 ```bash
-pip install torch torchaudio transformers
+conda run -n agent python -c "
+import subprocess, json
+result = subprocess.run([
+    'conda', 'run', '-n', 'pytorch_env', 'python', '-c',
+    'import torch; print(torch.cuda.is_available())'
+], capture_output=True, text=True)
+print(f'CUDA available from agent->pytorch_env: {result.stdout.strip()}')
+"
 ```
+
+- [ ] **Step 4: Commit（本轮无文件变更，环境检查通过即可）**
 
 ---
 
@@ -830,9 +864,37 @@ class PipelineEngine:
             "low_confidence_overall": all(c < threshold for c in confidences),
             "balance_loss": None,
         }
+
+
+if __name__ == "__main__":
+    import sys
+    import json
+    engine = PipelineEngine()
+    result = engine.run(sys.argv[1])
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 2: 从 agent 环境通过 subprocess 调用 Pipeline 验证跨环境通路**
+
+```bash
+conda run -n agent python -c "
+import subprocess, json, tempfile, soundfile, numpy
+# 生成测试音频
+tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+soundfile.write(tmp.name, np.random.randn(16000*5).astype(np.float32), 16000)
+tmp.close()
+
+result = subprocess.run([
+    'conda', 'run', '-n', 'pytorch_env', 'python', 'pipeline/pipeline_engine.py', tmp.name
+], capture_output=True, text=True, cwd='X:/Git_Clone/Langchain4UATR')
+
+print('STDOUT:', result.stdout[:500])
+if result.returncode != 0:
+    print('STDERR:', result.stderr[:500])
+"
+```
+
+- [ ] **Step 3: Commit**
 
 ```bash
 git add pipeline/pipeline_engine.py
@@ -846,41 +908,55 @@ git commit -m "feat: add pipeline engine (orchestrate full recognition pipeline)
 **Files:**
 - Create: `agent/tools/recognize_ship_tool.py`
 
-- [ ] **Step 1: 创建 `agent/tools/recognize_ship_tool.py`**
+- [ ] **Step 1: 创建 `agent/tools/recognize_ship_tool.py`（跨环境 subprocess 版本）**
 
 ```python
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+import subprocess
+import json
 from langchain_core.tools import tool
-from pipeline.pipeline_engine import PipelineEngine
+from utils.path_tool import get_project_root
 
-_engine = None
-
-def _get_engine():
-    global _engine
-    if _engine is None:
-        _engine = PipelineEngine()
-    return _engine
 
 @tool
 def recognize_ship(audio_path: str) -> dict:
     """对用户上传的水声录音进行目标识别。
 
-    输入音频文件路径，自动完成预处理、特征提取、模型推理和结果聚合。
-    返回结构化识别结果，包含：
-    - audio_info: 音频基本信息（文件名、采样率、时长、段数）
-    - metadata: 采集环境参数（水深、风速、距离、文本描述）
-    - predictions: 每段的识别结果（类别、置信度、Top-5概率、模型内部信息）
-    - aggregated: 聚合结果（投票分布、置信度均值、不确定段）
-    - internals: 模型内部信息（跨模态注意力、各分支贡献度）
+    在 pytorch_env 环境中运行 Pipeline（预处理 + 特征提取 + 模型推理），
+    返回结构化识别结果。
 
     Args:
         audio_path: 音频文件的绝对路径（.wav 格式，建议 16kHz 单通道）
+    Returns:
+        结构化识别结果 dict，包含 audio_info / metadata / predictions / aggregated / internals
     """
-    engine = _get_engine()
-    return engine.run(audio_path)
+    project_root = get_project_root()
+    pipeline_script = str(Path(project_root) / "pipeline" / "pipeline_engine.py")
+
+    proc = subprocess.run(
+        ["conda", "run", "-n", "pytorch_env", "python", pipeline_script, audio_path],
+        capture_output=True,
+        text=True,
+        timeout=300,  # 5 分钟超时
+        cwd=project_root,
+    )
+
+    if proc.returncode != 0:
+        return {
+            "status": "error",
+            "error_message": f"Pipeline 执行失败:\n{proc.stderr[:500]}",
+        }
+
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return {
+            "status": "error",
+            "error_message": f"Pipeline 输出解析失败:\n{proc.stdout[:500]}",
+        }
 ```
 
 - [ ] **Step 2: Commit**
@@ -1234,9 +1310,10 @@ git commit -m "feat: add file upload and report rendering to Streamlit UI"
 
 **Files:** None (manual testing)
 
-- [ ] **Step 1: 启动 Streamlit 应用**
+- [ ] **Step 1: 启动 Streamlit 应用（agent 环境）**
 
 ```bash
+conda activate agent
 streamlit run app.py
 ```
 
@@ -1274,7 +1351,34 @@ git commit -m "chore: end-to-end verification fixes"
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: 在 CLAUDE.md 的 Architecture 一节末尾追加**
+- [ ] **Step 1: 更新 Commands 和 Environment 部分**
+
+将 Commands 节替换为：
+
+```bash
+# 启动 Streamlit 应用（agent 环境）
+conda activate agent
+streamlit run app.py
+
+# 单独运行 Pipeline 测试（pytorch_env 环境）
+conda activate pytorch_env
+python pipeline/pipeline_engine.py <audio_path>
+```
+
+将 Environment 节替换为：
+
+```
+两个独立的 conda 环境，不合并：
+
+| 环境 | 用途 | 路径 |
+|---|---|---|
+| `agent` | Streamlit + LangGraph + LLM | `E:\Anaconda\envs\agent` |
+| `pytorch_env` | Pipeline（torch + 模型推理） | `E:\Anaconda\envs\pytorch_env` |
+
+跨环境通信：Agent 通过 `subprocess` + `conda run -n pytorch_env python pipeline/pipeline_engine.py <audio_path>` 调用 Pipeline，结果以 JSON 通过 stdout 传递。
+```
+
+- [ ] **Step 2: 在 Architecture 节末尾追加新模块**
 
 ```
   pipeline/                            [新增] 水声目标识别 Pipeline
@@ -1290,9 +1394,15 @@ git commit -m "chore: end-to-end verification fixes"
        rag_search_tool.py             [新增] RAG 检索 tool
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 3: 在 Key gotchas 节追加**
+
+```
+- **Pipeline 和 Agent 运行在不同 conda 环境** — Agent 开发用 `agent` 环境，Pipeline 用 `pytorch_env`。跨环境调用通过 `conda run -n pytorch_env python pipeline/pipeline_engine.py <audio>` 实现，结果 JSON 经 stdout 传递。
+```
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add CLAUDE.md
-git commit -m "docs: update CLAUDE.md with new pipeline and tool modules"
+git commit -m "docs: update CLAUDE.md with unified pytorch_env, pipeline and tool modules"
 ```
